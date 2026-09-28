@@ -314,6 +314,22 @@ body {
   gap: 12px;
 }
 
+.brand-context-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: white;
+  padding: 8px 14px;
+  font-size: 13px;
+  outline: none;
+  min-width: 220px;
+  transition: border-color 0.2s ease;
+}
+
+.brand-context-input:focus {
+  border-color: var(--primary);
+}
+
 .filter-group {
   display: flex;
   background: rgba(0, 0, 0, 0.25);

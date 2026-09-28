@@ -43,6 +43,7 @@ const btnViewGrid = document.getElementById('btn-view-grid');
 const tableViewContainer = document.getElementById('table-view-container');
 const gridViewContainer = document.getElementById('grid-view-container');
 const productTableBody = document.getElementById('product-table-body');
+const brandPrefixInput = document.getElementById('brand-prefix-input');
 
 // Modals
 const pasteModal = document.getElementById('paste-modal');
@@ -50,6 +51,13 @@ const pasteTextarea = document.getElementById('paste-textarea');
 const btnClosePaste = document.getElementById('btn-close-paste');
 const btnCancelPaste = document.getElementById('btn-cancel-paste');
 const btnSubmitPaste = document.getElementById('btn-submit-paste');
+
+const apiModal = document.getElementById('api-modal');
+const btnApiSettings = document.getElementById('btn-api-settings');
+const btnCloseApiModal = document.getElementById('btn-close-api-modal');
+const apiKeyInput = document.getElementById('api-key-input');
+const btnSaveApi = document.getElementById('btn-save-api');
+const btnClearApi = document.getElementById('btn-clear-api');
 
 const alternativesModal = document.getElementById('alternatives-modal');
 const altModalProductName = document.getElementById('alt-modal-product-name');
@@ -71,50 +79,163 @@ document.addEventListener('DOMContentLoaded', () => {
   setupToolbarEvents();
   setupModalEvents();
   setupViewToggle();
+  
+  // Load saved API key from localStorage if any
+  const savedKey = localStorage.getItem('google_serper_api_key') || '';
+  if (apiKeyInput) apiKeyInput.value = savedKey;
+  if (savedKey && btnApiSettings) {
+    btnApiSettings.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      Google API Active
+    `;
+  }
 });
+
+// Setup Modals
+function setupModalEvents() {
+  // API Key Modal
+  if (btnApiSettings) {
+    btnApiSettings.addEventListener('click', () => {
+      apiKeyInput.value = localStorage.getItem('google_serper_api_key') || '';
+      apiModal.classList.remove('hidden');
+    });
+  }
+  if (btnCloseApiModal) btnCloseApiModal.addEventListener('click', () => apiModal.classList.add('hidden'));
+  if (btnSaveApi) {
+    btnSaveApi.addEventListener('click', () => {
+      const key = apiKeyInput.value.trim();
+      localStorage.setItem('google_serper_api_key', key);
+      apiModal.classList.add('hidden');
+      if (key) {
+        btnApiSettings.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Google API Active
+        `;
+        alert('Google API Key saved!');
+      } else {
+        btnApiSettings.textContent = 'Google API Key';
+      }
+    });
+  }
+  if (btnClearApi) {
+    btnClearApi.addEventListener('click', () => {
+      localStorage.removeItem('google_serper_api_key');
+      apiKeyInput.value = '';
+      btnApiSettings.textContent = 'Google API Key';
+      apiModal.classList.add('hidden');
+    });
+  }
+
+  // Paste Modal
+  if (btnManualPaste) {
+    btnManualPaste.addEventListener('click', () => {
+      pasteModal.classList.remove('hidden');
+      pasteTextarea.focus();
+    });
+  }
+
+  if (btnClosePaste) btnClosePaste.addEventListener('click', () => pasteModal.classList.add('hidden'));
+  if (btnCancelPaste) btnCancelPaste.addEventListener('click', () => pasteModal.classList.add('hidden'));
+
+  if (btnSubmitPaste) {
+    btnSubmitPaste.addEventListener('click', () => {
+      const text = pasteTextarea.value.trim();
+      if (!text) return;
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const items = lines.map((name, idx) => ({
+        id: `item-${idx + 1}`,
+        row_index: idx + 1,
+        product_name: name,
+        image_url: '',
+        thumbnail_url: '',
+        match_score: 0,
+        status: 'ready',
+        candidates: []
+      }));
+      loadItemsIntoState(items);
+      pasteModal.classList.add('hidden');
+      pasteTextarea.value = '';
+    });
+  }
+
+  // Alternatives Modal
+  if (btnCloseAltModal) btnCloseAltModal.addEventListener('click', () => alternativesModal.classList.add('hidden'));
+  if (btnAltSearch) {
+    btnAltSearch.addEventListener('click', () => {
+      const customQuery = altSearchInput.value.trim();
+      if (customQuery && state.selectedItemId) {
+        searchAlternativesForItem(state.selectedItemId, customQuery);
+      }
+    });
+  }
+  if (altSearchInput) {
+    altSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') btnAltSearch.click();
+    });
+  }
+
+  if (btnApplyCustomUrl) {
+    btnApplyCustomUrl.addEventListener('click', () => {
+      const customUrl = customImageUrlInput.value.trim();
+      if (customUrl && state.selectedItemId) {
+        updateItemWithChosenImage(state.selectedItemId, customUrl, customUrl, 'Custom URL', 100);
+        alternativesModal.classList.add('hidden');
+      }
+    });
+  }
+
+  // Lightbox
+  if (btnCloseLightbox) btnCloseLightbox.addEventListener('click', () => lightboxModal.classList.add('hidden'));
+  if (lightboxModal) {
+    lightboxModal.addEventListener('click', (e) => {
+      if (e.target === lightboxModal) lightboxModal.classList.add('hidden');
+    });
+  }
+}
 
 // Setup File Upload & Drag-and-Drop
 function setupUploadEvents() {
-  btnBrowseFile.addEventListener('click', (e) => {
-    e.stopPropagation();
-    csvFileInput.click();
-  });
-
-  dropzone.addEventListener('click', () => {
-    csvFileInput.click();
-  });
-
-  csvFileInput.addEventListener('change', handleFileSelected);
-
-  // Drag & drop
-  ['dragenter', 'dragover'].forEach(eventName => {
-    dropzone.addEventListener(eventName, (e) => {
-      e.preventDefault();
+  if (btnBrowseFile) {
+    btnBrowseFile.addEventListener('click', (e) => {
       e.stopPropagation();
-      dropzone.classList.add('drag-over');
+      csvFileInput.click();
     });
-  });
+  }
 
-  ['dragleave', 'drop'].forEach(eventName => {
-    dropzone.addEventListener(eventName, (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropzone.classList.remove('drag-over');
+  if (dropzone) {
+    dropzone.addEventListener('click', () => {
+      csvFileInput.click();
     });
-  });
 
-  dropzone.addEventListener('drop', (e) => {
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      processCsvFile(files[0]);
-    }
-  });
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('drag-over');
+      });
+    });
 
-  btnLoadSample.addEventListener('click', loadSampleDataset);
-  btnTrySampleInline.addEventListener('click', loadSampleDataset);
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('drag-over');
+      });
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        processCsvFile(files[0]);
+      }
+    });
+  }
+
+  if (csvFileInput) csvFileInput.addEventListener('change', handleFileSelected);
+  if (btnLoadSample) btnLoadSample.addEventListener('click', loadSampleDataset);
+  if (btnTrySampleInline) btnTrySampleInline.addEventListener('click', loadSampleDataset);
 }
 
-// Handle CSV File upload
 function handleFileSelected(e) {
   if (e.target.files.length > 0) {
     processCsvFile(e.target.files[0]);
@@ -139,7 +260,6 @@ async function processCsvFile(file) {
   }
 }
 
-// Load Instant Sample dataset
 async function loadSampleDataset() {
   try {
     const res = await fetch('/api/sample-csv');
@@ -151,62 +271,6 @@ async function loadSampleDataset() {
   }
 }
 
-// Paste Products Modal
-function setupModalEvents() {
-  btnManualPaste.addEventListener('click', () => {
-    pasteModal.classList.remove('hidden');
-    pasteTextarea.focus();
-  });
-
-  btnClosePaste.addEventListener('click', () => pasteModal.classList.add('hidden'));
-  btnCancelPaste.addEventListener('click', () => pasteModal.classList.add('hidden'));
-
-  btnSubmitPaste.addEventListener('click', () => {
-    const text = pasteTextarea.value.trim();
-    if (!text) return;
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-    const items = lines.map((name, idx) => ({
-      id: `item-${idx + 1}`,
-      row_index: idx + 1,
-      product_name: name,
-      image_url: '',
-      thumbnail_url: '',
-      match_score: 0,
-      status: 'ready',
-      candidates: []
-    }));
-    loadItemsIntoState(items);
-    pasteModal.classList.add('hidden');
-    pasteTextarea.value = '';
-  });
-
-  // Alternatives Modal
-  btnCloseAltModal.addEventListener('click', () => alternativesModal.classList.add('hidden'));
-  btnAltSearch.addEventListener('click', () => {
-    const customQuery = altSearchInput.value.trim();
-    if (customQuery && state.selectedItemId) {
-      searchAlternativesForItem(state.selectedItemId, customQuery);
-    }
-  });
-  altSearchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') btnAltSearch.click();
-  });
-
-  btnApplyCustomUrl.addEventListener('click', () => {
-    const customUrl = customImageUrlInput.value.trim();
-    if (customUrl && state.selectedItemId) {
-      updateItemWithChosenImage(state.selectedItemId, customUrl, customUrl, 'Custom URL', 100);
-      alternativesModal.classList.add('hidden');
-    }
-  });
-
-  // Lightbox
-  btnCloseLightbox.addEventListener('click', () => lightboxModal.classList.add('hidden'));
-  lightboxModal.addEventListener('click', (e) => {
-    if (e.target === lightboxModal) lightboxModal.classList.add('hidden');
-  });
-}
-
 function loadItemsIntoState(items) {
   state.items = items;
   uploadSection.classList.add('hidden');
@@ -215,16 +279,16 @@ function loadItemsIntoState(items) {
   renderProducts();
 }
 
-// Setup Toolbar & Filters
 function setupToolbarEvents() {
-  btnStartProcess.addEventListener('click', startBatchProcessing);
-  btnStopProcess.addEventListener('click', () => {
-    state.shouldStop = true;
-    btnStopProcess.classList.add('hidden');
-    btnStartProcess.classList.remove('hidden');
-  });
+  if (btnStartProcess) btnStartProcess.addEventListener('click', startBatchProcessing);
+  if (btnStopProcess) {
+    btnStopProcess.addEventListener('click', () => {
+      state.shouldStop = true;
+      btnStopProcess.classList.add('hidden');
+      btnStartProcess.classList.remove('hidden');
+    });
+  }
 
-  // Filter tabs
   document.querySelectorAll('.filter-pill').forEach(pill => {
     pill.addEventListener('click', () => {
       document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
@@ -234,32 +298,35 @@ function setupToolbarEvents() {
     });
   });
 
-  // Export CSV
-  btnExportCsv.addEventListener('click', exportCsv);
-  btnCopyUrls.addEventListener('click', copyAllUrls);
+  if (btnExportCsv) btnExportCsv.addEventListener('click', exportCsv);
+  if (btnCopyUrls) btnCopyUrls.addEventListener('click', copyAllUrls);
 }
 
 function setupViewToggle() {
-  btnViewTable.addEventListener('click', () => {
-    state.currentView = 'table';
-    btnViewTable.classList.add('active');
-    btnViewGrid.classList.remove('active');
-    tableViewContainer.classList.remove('hidden');
-    gridViewContainer.classList.add('hidden');
-    renderProducts();
-  });
+  if (btnViewTable) {
+    btnViewTable.addEventListener('click', () => {
+      state.currentView = 'table';
+      btnViewTable.classList.add('active');
+      btnViewGrid.classList.remove('active');
+      tableViewContainer.classList.remove('hidden');
+      gridViewContainer.classList.add('hidden');
+      renderProducts();
+    });
+  }
 
-  btnViewGrid.addEventListener('click', () => {
-    state.currentView = 'grid';
-    btnViewGrid.classList.add('active');
-    btnViewTable.classList.remove('active');
-    tableViewContainer.classList.add('hidden');
-    gridViewContainer.classList.remove('hidden');
-    renderProducts();
-  });
+  if (btnViewGrid) {
+    btnViewGrid.addEventListener('click', () => {
+      state.currentView = 'grid';
+      btnViewGrid.classList.add('active');
+      btnViewTable.classList.remove('active');
+      tableViewContainer.classList.add('hidden');
+      gridViewContainer.classList.remove('hidden');
+      renderProducts();
+    });
+  }
 }
 
-// Batch Processing Engine
+// Batch Processing
 async function startBatchProcessing() {
   if (state.isProcessing) return;
   state.isProcessing = true;
@@ -273,7 +340,9 @@ async function startBatchProcessing() {
   const totalToProcess = pendingItems.length;
   let processedCount = 0;
 
-  // Process concurrently with a pool of workers
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const apiKey = localStorage.getItem('google_serper_api_key') || '';
+
   const pool = [];
   let itemIndex = 0;
 
@@ -281,13 +350,17 @@ async function startBatchProcessing() {
     while (itemIndex < pendingItems.length && !state.shouldStop) {
       const item = pendingItems[itemIndex++];
       item.status = 'searching';
-      updateRowStateInDom(item);
+      renderProducts();
 
       try {
         const res = await fetch('/api/search-item', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ product_name: item.product_name })
+          body: JSON.stringify({ 
+            product_name: item.product_name,
+            brand_prefix: brandPrefix,
+            api_key: apiKey
+          })
         });
         const data = await res.json();
         
@@ -307,12 +380,11 @@ async function startBatchProcessing() {
 
       processedCount++;
       updateProgress(processedCount, totalToProcess);
-      updateRowStateInDom(item);
       updateStats();
+      renderProducts();
     }
   }
 
-  // Spawn concurrency workers
   const concurrency = Math.min(state.concurrency, totalToProcess || 1);
   for (let i = 0; i < concurrency; i++) {
     pool.push(worker());
@@ -323,7 +395,7 @@ async function startBatchProcessing() {
   state.isProcessing = false;
   btnStopProcess.classList.add('hidden');
   btnStartProcess.classList.remove('hidden');
-  progressText.textContent = state.shouldStop ? 'Process paused' : 'Completed all products!';
+  progressText.textContent = state.shouldStop ? 'Process paused' : 'Completed!';
   updateStats();
   renderProducts();
 }
@@ -335,7 +407,6 @@ function updateProgress(current, total) {
   progressText.textContent = `Finding image ${current} of ${total}...`;
 }
 
-// Update Statistics Counters
 function updateStats() {
   const total = state.items.length;
   const matched = state.items.filter(i => i.image_url).length;
@@ -358,7 +429,6 @@ function updateStats() {
   }
 }
 
-// Render Products
 function renderProducts() {
   const filtered = state.items.filter(item => {
     if (state.activeFilter === 'matched') return !!item.image_url;
@@ -384,7 +454,6 @@ function renderTableView(items) {
     const tr = document.createElement('tr');
     tr.id = `row-${item.id}`;
     
-    // Thumbnail markup
     let thumbHtml = '';
     if (item.status === 'searching') {
       thumbHtml = `<div class="thumbnail-box"><div class="spinner"></div></div>`;
@@ -398,7 +467,6 @@ function renderTableView(items) {
       thumbHtml = `<div class="thumbnail-box"><span class="thumbnail-placeholder">📦</span></div>`;
     }
 
-    // Score badge
     let scoreBadge = `<span class="score-badge score-low">Pending</span>`;
     if (item.match_score >= 80) {
       scoreBadge = `<span class="score-badge score-high">★ ${item.match_score}% Match</span>`;
@@ -408,7 +476,6 @@ function renderTableView(items) {
       scoreBadge = `<span class="score-badge score-low">Not found</span>`;
     }
 
-    // URL cell
     let urlHtml = `<span class="url-empty">Pending search...</span>`;
     if (item.image_url) {
       urlHtml = `
@@ -496,11 +563,6 @@ function renderGridView(items) {
   });
 }
 
-function updateRowStateInDom(item) {
-  // If in table view, we can update or re-render
-  renderProducts();
-}
-
 // Single Item Re-Search
 async function reSearchSingleItem(itemId) {
   const item = state.items.find(i => i.id === itemId);
@@ -509,11 +571,18 @@ async function reSearchSingleItem(itemId) {
   item.status = 'searching';
   renderProducts();
 
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const apiKey = localStorage.getItem('google_serper_api_key') || '';
+
   try {
     const res = await fetch('/api/search-item', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_name: item.product_name })
+      body: JSON.stringify({ 
+        product_name: item.product_name,
+        brand_prefix: brandPrefix,
+        api_key: apiKey
+      })
     });
     const data = await res.json();
     if (data.best_image_url) {
@@ -547,19 +616,26 @@ async function openAlternativesModal(itemId) {
   if (item.candidates && item.candidates.length > 0) {
     renderCandidatesInModal(item.candidates, item.image_url);
   } else {
-    // Fetch live candidates
     await searchAlternativesForItem(itemId, item.product_name);
   }
 }
 
 async function searchAlternativesForItem(itemId, query) {
-  altImagesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 24px;"><div class="spinner" style="margin: 0 auto 8px;"></div>Searching Google & Bing images...</div>';
+  altImagesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 24px;"><div class="spinner" style="margin: 0 auto 8px;"></div>Searching Images...</div>';
   
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const apiKey = localStorage.getItem('google_serper_api_key') || '';
+
   try {
     const res = await fetch('/api/search-item', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_name: query, custom_query: query })
+      body: JSON.stringify({ 
+        product_name: query, 
+        custom_query: query,
+        brand_prefix: brandPrefix,
+        api_key: apiKey
+      })
     });
     const data = await res.json();
     const item = state.items.find(i => i.id === itemId);
@@ -627,7 +703,7 @@ function openLightbox(url, title) {
   lightboxModal.classList.remove('hidden');
 }
 
-// Export CSV (Column 1 = Product Name, Column 2 = Image URL)
+// Export CSV
 async function exportCsv() {
   if (state.items.length === 0) {
     alert('No items to export.');
@@ -660,7 +736,6 @@ async function exportCsv() {
   }
 }
 
-// Copy URLs to Clipboard
 function copyAllUrls() {
   const urls = state.items.map(i => i.image_url).filter(u => !!u);
   if (urls.length === 0) {
@@ -674,7 +749,6 @@ function copyAllUrls() {
   });
 }
 
-// Helper: Escape HTML
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)

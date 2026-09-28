@@ -26,9 +26,12 @@ app.add_middleware(
 class ProductSearchRequest(BaseModel):
     product_name: str
     custom_query: Optional[str] = None
+    brand_prefix: Optional[str] = ""
+    api_key: Optional[str] = ""
+    cx: Optional[str] = ""
 
 class BatchSearchRequest(BaseModel):
-    products: List[dict]  # list of {id: ..., name: ..., original_row: ...}
+    products: List[dict]
 
 class ExportRequest(BaseModel):
     headers: List[str]
@@ -57,13 +60,18 @@ def proxy_image(url: str = Query(..., description="Target image URL")):
             data = resp.read()
             return Response(content=data, media_type=content_type)
     except Exception as e:
-        # Fallback redirect or 404
         return Response(status_code=302, headers={"Location": url})
 
 @app.post("/api/search-item")
 def search_item(req: ProductSearchRequest):
     query = req.custom_query if req.custom_query else req.product_name
-    result = matcher.find_best_images(query, count=6)
+    result = matcher.find_best_images(
+        product_name=query,
+        brand_prefix=req.brand_prefix or "",
+        api_key=req.api_key or "",
+        cx=req.cx or "",
+        count=10
+    )
     result["product_name"] = req.product_name
     return result
 

@@ -33,6 +33,10 @@
       </div>
       
       <div class="header-actions">
+        <button id="btn-api-settings" class="btn btn-secondary" title="Configure Google Serper API Key (2,500 free Google searches)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Google API Key
+        </button>
         <button id="btn-load-sample" class="btn btn-secondary">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7"/><path d="M16 19h6"/><path d="M19 16l3 3-3 3"/></svg>
           Load Demo CSV
@@ -70,6 +74,32 @@
           </div>
         </div>
       </section>
+
+      <!-- Google API Key Modal -->
+      <div id="api-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Google Search API Configuration</h3>
+            <button class="btn-close-modal" id="btn-close-api-modal">&times;</button>
+          </div>
+          <p class="modal-subtitle" style="margin-bottom: 16px;">
+            To fetch the <strong>exact top 10 Google Image results</strong> with 100% precision and no CAPTCHAs, enter a free Serper API key or Google Custom Search key.
+          </p>
+          <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;">
+            💡 <strong>How to get 2,500 FREE Google Searches (Takes 15 seconds):</strong><br>
+            1. Open <a href="https://serper.dev" target="_blank" style="color: #38bdf8; text-decoration: underline;">https://serper.dev</a> and sign up.<br>
+            2. Copy your free API key and paste it below.
+          </div>
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 12px; margin-bottom: 6px; color: var(--text-muted);">Serper / Google API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Paste your API key here..." style="width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: white; outline: none; font-family: var(--font-mono); font-size: 13px;">
+          </div>
+          <div class="modal-actions">
+            <button id="btn-clear-api" class="btn btn-ghost">Clear</button>
+            <button id="btn-save-api" class="btn btn-primary">Save API Key</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Paste Text Area Modal / Drawer -->
       <div id="paste-modal" class="modal-overlay hidden">
@@ -121,6 +151,9 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"/></svg>
               <span>Stop</span>
             </button>
+            <div class="brand-input-wrapper" title="Brand context (e.g. Fischer, Apple, Nike) for exact product matching">
+              <input type="text" id="brand-prefix-input" value="fischer" placeholder="Brand / Prefix (e.g. fischer, Apple)..." class="brand-context-input">
+            </div>
             <div class="filter-group">
               <button class="filter-pill active" data-filter="all">All (<span id="filter-count-all">0</span>)</button>
               <button class="filter-pill" data-filter="matched">Matched (<span id="filter-count-matched">0</span>)</button>
