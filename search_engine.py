@@ -29,14 +29,13 @@ class ProductImageMatcher:
         seq_ratio = difflib.SequenceMatcher(None, p_clean, t_clean[:len(p_clean) * 2]).ratio() * 20.0
 
         bonus = 0.0
-        popular_domains = ['amazon', 'walmart', 'target', 'indiamart', 'imimg', 'ebay', 'bestbuy', 'apple', 'nike', 'sony', 'logitech', 'dyson', 'media']
-        if any(brand in t_clean or brand in u_clean for brand in popular_domains):
+        if any(brand in t_clean or brand in u_clean for brand in ['fischer', 'amazon', 'imimg', 'indiamart', 'ebay', 'hardware', 'media.fischer']):
             bonus += 10.0
 
         final_score = overlap_score + seq_ratio + bonus
         return max(50.0, min(99.9, round(final_score, 1)))
 
-    def search_exact_images(self, query: str, brand_prefix: str = "", count: int = 10) -> List[Dict[str, Any]]:
+    def search_exact_images(self, query: str, brand_prefix: str = "fischer", count: int = 10) -> List[Dict[str, Any]]:
         """
         Extracts exact matching high-resolution product images directly from web image index.
         """
@@ -81,7 +80,7 @@ class ProductImageMatcher:
             print(f"Error fetching images for '{full_query}': {e}")
             return []
 
-    def find_best_images(self, product_name: str, brand_prefix: str = "", api_key: str = "", cx: str = "", count: int = 10) -> Dict[str, Any]:
+    def find_best_images(self, product_name: str, brand_prefix: str = "fischer", api_key: str = "", cx: str = "", count: int = 10) -> Dict[str, Any]:
         clean_name = product_name.strip()
         if not clean_name:
             return {
