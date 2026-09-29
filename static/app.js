@@ -528,16 +528,15 @@ function updateProgress(current, total) {
 function updateStats() {
   const total = state.items.length;
   const matched = state.items.filter(i => !!i.image_url).length;
-  const unsearched = state.items.filter(i => !i.image_url && i.status !== 'not_found' && i.status !== 'error').length;
-  const notFound = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
+  const pending = Math.max(0, total - matched);
 
   statTotal.textContent = total;
   statMatched.textContent = matched;
-  statPending.textContent = unsearched > 0 ? unsearched : (notFound > 0 ? `${notFound} not found` : 0);
+  statPending.textContent = pending;
 
   filterCountAll.textContent = total;
   filterCountMatched.textContent = matched;
-  filterCountPending.textContent = total - matched;
+  filterCountPending.textContent = pending;
 
   const matchedItems = state.items.filter(i => i.match_score > 0);
   if (matchedItems.length > 0) {

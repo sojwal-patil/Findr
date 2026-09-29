@@ -193,13 +193,27 @@ async function findBestImages(productName, brandPrefix = "", count = 10) {
 
   // 3. If still empty, simplify long query by taking core significant words
   if (candidates.length === 0) {
-    const words = cleanName.split(/\s+/).filter(w => !['with', 'and', 'for', 'the', 'model', 'series', 'class', 'in'].includes(w.toLowerCase()));
-    if (words.length > 3) {
+    const words = cleanName.split(/\s+/).filter(w => !['with', 'and', 'for', 'the', 'model', 'series', 'class', 'in', 'item'].includes(w.toLowerCase()));
+    if (words.length > 2) {
       const relaxedQuery = words.slice(0, 4).join(' ');
       const relaxedCandidates = await searchBingImages(relaxedQuery, count);
       for (const rc of relaxedCandidates) {
         if (!candidates.some(c => c.image_url === rc.image_url)) {
           candidates.push(rc);
+        }
+      }
+    }
+  }
+
+  // 4. Final auto-retry fallback: Strip non-alphanumeric and take first 3 words
+  if (candidates.length === 0) {
+    const alphanumeric = cleanName.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const shortTerms = alphanumeric.split(' ').slice(0, 3).join(' ');
+    if (shortTerms && shortTerms.length >= 3) {
+      const shortCandidates = await searchBingImages(shortTerms, count);
+      for (const sc of shortCandidates) {
+        if (!candidates.some(c => c.image_url === sc.image_url)) {
+          candidates.push(sc);
         }
       }
     }
