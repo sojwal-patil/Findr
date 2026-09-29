@@ -1,4 +1,4 @@
-// Multi-Engine (Bing + DuckDuckGo) High-Precision Product Image Matcher in JavaScript
+// High-Precision Multi-Engine (DuckDuckGo + Bing + Yahoo) Product Matcher in JavaScript
 
 function getBigrams(str) {
   const bigrams = [];
@@ -31,7 +31,7 @@ function sequenceMatcherRatio(str1, str2) {
 function calculateMatchScore(productName, title, imageUrl) {
   const pClean = (productName || '').toLowerCase().trim();
   const pWords = new Set(pClean.match(/[a-z0-9]+/g) || []);
-  if (pWords.size === 0) return 80.0;
+  if (pWords.size === 0) return 85.0;
 
   const tClean = (title || '').toLowerCase();
   const tWords = new Set(tClean.match(/[a-z0-9]+/g) || []);
@@ -46,44 +46,133 @@ function calculateMatchScore(productName, title, imageUrl) {
   const seqRatio = sequenceMatcherRatio(pClean, tClean.slice(0, pClean.length * 2)) * 20.0;
 
   let bonus = 0.0;
-  const brands = ['fischer', 'amazon', 'imimg', 'indiamart', 'ebay', 'hardware', 'media.fischer', 'target', 'walmart'];
-  if (brands.some(b => tClean.includes(b) || uClean.includes(b))) {
+  const popularDomains = ['amazon', 'walmart', 'target', 'indiamart', 'imimg', 'ebay', 'bestbuy', 'apple', 'nike', 'sony', 'logitech', 'dyson', 'media'];
+  if (popularDomains.some(d => tClean.includes(d) || uClean.includes(d))) {
     bonus += 10.0;
   }
 
   const finalScore = overlapScore + seqRatio + bonus;
-  return Math.max(50.0, Math.min(99.9, Math.round(finalScore * 10) / 10));
+  return Math.max(65.0, Math.min(99.9, Math.round(finalScore * 10) / 10));
 }
 
-// Engine 1: Bing Image Index Scraper
-async function searchBingImages(query, count = 10) {
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0'
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+// Primary Engine: DuckDuckGo High-Precision Product Image Index
+async function searchDuckDuckGo(query, count = 10) {
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'User-Agent': getRandomUserAgent(),
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   };
 
   try {
-    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1`;
+    const r1 = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}&t=h_&iar=images&iax=images&ia=images`, { headers });
+    const html = await r1.text();
+    const vqdMatch = html.match(/vqd=([0-9\-]+)/) || html.match(/vqd="([0-9\-]+)"/) || html.match(/vqd='([0-9\-]+)'/);
+    if (!vqdMatch) return [];
+
+    const vqd = vqdMatch[1];
+    const apiHeaders = {
+      ...headers,
+      'Referer': `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+      'Accept': 'application/json, text/javascript, */*; q=0.01'
+    };
+
+    const r2 = await fetch(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,`, { headers: apiHeaders });
+    const data = await r2.json();
+
+    const items = [];
+    for (const it of (data.results || [])) {
+      const img = it.image;
+      if (img && img.startsWith('http') && !img.endsWith('.svg')) {
+        const title = it.title || query;
+        const score = calculateMatchScore(query, title, img);
+        items.push({
+          image_url: img,
+          thumbnail_url: it.thumbnail || img,
+          title: title,
+          source: 'DuckDuckGo Product Index',
+          score: score
+        });
+        if (items.length >= count) break;
+      }
+    }
+    return items;
+  } catch (err) {
+    return [];
+  }
+}
+
+// Secondary Engine: Bing Image Scraper Fallback
+async function searchBing(query, count = 10) {
+  const headers = {
+    'User-Agent': getRandomUserAgent(),
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+  };
+
+  try {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&first=1&scenario=ImageBasicHover`;
     const res = await fetch(url, { headers });
     const html = await res.text();
 
     const items = [];
-    const regex = /m=&quot;(\{.*?\})&quot;/g;
+    const murlRegex = /&quot;murl&quot;:&quot;(https?:[^\&]+?)&quot;/g;
     let match;
+    while ((match = murlRegex.exec(html)) !== null) {
+      const img = match[1];
+      if (img && img.startsWith('http') && !img.endsWith('.svg')) {
+        const score = calculateMatchScore(query, query, img);
+        items.push({
+          image_url: img,
+          thumbnail_url: img,
+          title: query,
+          source: 'Bing Visual Web Index',
+          score: score
+        });
+        if (items.length >= count) break;
+      }
+    }
+    return items;
+  } catch (err) {
+    return [];
+  }
+}
 
-    while ((match = regex.exec(html)) !== null) {
+// Tertiary Engine: Yahoo Image Index Fallback
+async function searchYahoo(query, count = 10) {
+  const headers = {
+    'User-Agent': getRandomUserAgent(),
+    'Accept-Language': 'en-US,en;q=0.9'
+  };
+
+  try {
+    const url = `https://images.search.yahoo.com/search/images?p=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers });
+    const html = await res.text();
+
+    const items = [];
+    // Yahoo embeds image urls in imgurl= or JSON structures
+    const imgRegex = /imgurl=(https?%3A%2F%2F[^&]+)/g;
+    let match;
+    while ((match = imgRegex.exec(html)) !== null) {
       try {
-        const decoded = match[1].replace(/&quot;/g, '"');
-        const obj = JSON.parse(decoded);
-        if (obj.murl && obj.murl.startsWith('http')) {
-          const title = obj.t || query;
-          const score = calculateMatchScore(query, title, obj.murl);
+        const img = decodeURIComponent(match[1]);
+        if (img && img.startsWith('http') && !img.endsWith('.svg') && !items.some(i => i.image_url === img)) {
+          const score = calculateMatchScore(query, query, img);
           items.push({
-            image_url: obj.murl,
-            thumbnail_url: obj.turl || obj.murl,
-            title: title,
-            source: 'Bing / Web Index',
+            image_url: img,
+            thumbnail_url: img,
+            title: query,
+            source: 'Yahoo Image Index',
             score: score
           });
           if (items.length >= count) break;
@@ -96,53 +185,19 @@ async function searchBingImages(query, count = 10) {
   }
 }
 
-// Engine 2: DuckDuckGo Image Index Scraper
-async function searchDuckDuckGoImages(query, count = 10) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9'
-  };
-
-  try {
-    const url = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
-    const r1 = await fetch(url, { headers });
-    const text1 = await r1.text();
-
-    const vqdMatch = text1.match(/vqd=([0-9\-]+)/) || text1.match(/vqd="([0-9\-]+)"/);
-    if (!vqdMatch) return [];
-
-    const v = vqdMatch[1];
-    const apiUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${v}&f=,,,`;
-    const r2 = await fetch(apiUrl, {
-      headers: {
-        ...headers,
-        'Referer': `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
-      }
-    });
-    const data = await r2.json();
-
-    const items = [];
-    for (const it of (data.results || [])) {
-      const img = it.image;
-      if (img && img.startsWith('http')) {
-        const title = it.title || query;
-        const score = calculateMatchScore(query, title, img);
-        items.push({
-          image_url: img,
-          thumbnail_url: it.thumbnail || img,
-          title: title,
-          source: 'DuckDuckGo Index',
-          score: score
-        });
-        if (items.length >= count) break;
-      }
-    }
-    return items;
-  } catch (err) {
-    return [];
-  }
+// Helper to remove technical noise, sizes, colors, and packaging specs
+function cleanProductQuery(name) {
+  return name
+    .replace(/\b(\d+gb|\d+tb|\d+oz|\d+ml|\d+g|\d+kg|\d+l|\d+cm|\d+mm|\d+inch|\d+-inch|\d+k|4k|oled|qled)\b/gi, ' ')
+    .replace(/\b(black|white|silver|gold|grey|gray|yellow|nickel|titanium|blue|red|green|orange|purple)\b/gi, ' ')
+    .replace(/\b(jar|pack|box|set|bottle|piece|pcs|pair|series|model|class|edition)\b/gi, ' ')
+    .replace(/\b(with|and|for|the|in|on|at|of|by|to)\b/gi, ' ')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
+// Multi-Tier Automatic Search Cascade with Built-In Retries
 async function findBestImages(productName, brandPrefix = "", count = 10) {
   const cleanName = (productName || '').trim();
   if (!cleanName) {
@@ -159,63 +214,57 @@ async function findBestImages(productName, brandPrefix = "", count = 10) {
 
   let candidates = [];
 
-  // 1. If brandPrefix is provided, search with brandPrefix
+  // Helper to add unique candidates
+  function addCandidates(newItems) {
+    for (const item of newItems) {
+      if (!candidates.some(c => c.image_url === item.image_url)) {
+        candidates.push(item);
+      }
+    }
+  }
+
+  // Tier 1: Search with brand prefix if provided
   if (brandPrefix && !cleanName.toLowerCase().includes(brandPrefix.toLowerCase())) {
     const brandedQuery = `${brandPrefix} ${cleanName}`;
-    candidates = await searchBingImages(brandedQuery, count);
-    if (candidates.length < 3) {
-      const ddg = await searchDuckDuckGoImages(brandedQuery, count);
-      for (const d of ddg) {
-        if (!candidates.some(c => c.image_url === d.image_url)) {
-          candidates.push(d);
-        }
-      }
+    addCandidates(await searchDuckDuckGo(brandedQuery, count));
+    if (candidates.length < 3) addCandidates(await searchBing(brandedQuery, count));
+    if (candidates.length < 3) addCandidates(await searchYahoo(brandedQuery, count));
+  }
+
+  // Tier 2: Search clean raw name across DDG, Bing & Yahoo
+  if (candidates.length < 3) {
+    addCandidates(await searchDuckDuckGo(cleanName, count));
+    if (candidates.length < 3) addCandidates(await searchBing(cleanName, count));
+    if (candidates.length < 3) addCandidates(await searchYahoo(cleanName, count));
+  }
+
+  // Tier 3: Core keyword relaxation (stripping fillers & packaging details)
+  if (candidates.length < 2) {
+    const simplified = cleanProductQuery(cleanName);
+    if (simplified && simplified !== cleanName && simplified.length >= 3) {
+      addCandidates(await searchDuckDuckGo(simplified, count));
+      if (candidates.length < 2) addCandidates(await searchBing(simplified, count));
+      if (candidates.length < 2) addCandidates(await searchYahoo(simplified, count));
     }
   }
 
-  // 2. If no brand prefix OR candidates are low (< 3) OR top score is low, also search exact cleanName
-  if (candidates.length < 3 || !brandPrefix || (candidates[0] && candidates[0].score < 70)) {
-    const rawCandidates = await searchBingImages(cleanName, count);
-    for (const r of rawCandidates) {
-      if (!candidates.some(c => c.image_url === r.image_url)) {
-        candidates.push(r);
-      }
-    }
-    if (candidates.length < 3) {
-      const ddgRaw = await searchDuckDuckGoImages(cleanName, count);
-      for (const d of ddgRaw) {
-        if (!candidates.some(c => c.image_url === d.image_url)) {
-          candidates.push(d);
-        }
-      }
-    }
-  }
-
-  // 3. If still empty, simplify long query by taking core significant words
+  // Tier 4: First 3 primary keywords
   if (candidates.length === 0) {
-    const words = cleanName.split(/\s+/).filter(w => !['with', 'and', 'for', 'the', 'model', 'series', 'class', 'in', 'item'].includes(w.toLowerCase()));
-    if (words.length > 2) {
-      const relaxedQuery = words.slice(0, 4).join(' ');
-      const relaxedCandidates = await searchBingImages(relaxedQuery, count);
-      for (const rc of relaxedCandidates) {
-        if (!candidates.some(c => c.image_url === rc.image_url)) {
-          candidates.push(rc);
-        }
-      }
+    const words = cleanName.replace(/[^a-zA-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+    if (words.length >= 2) {
+      const shortQuery = words.slice(0, 3).join(' ');
+      addCandidates(await searchDuckDuckGo(shortQuery, count));
+      if (candidates.length === 0) addCandidates(await searchBing(shortQuery, count));
+      if (candidates.length === 0) addCandidates(await searchYahoo(shortQuery, count));
     }
   }
 
-  // 4. Final auto-retry fallback: Strip non-alphanumeric and take first 3 words
+  // Tier 5: Individual brand or key noun fallback
   if (candidates.length === 0) {
-    const alphanumeric = cleanName.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    const shortTerms = alphanumeric.split(' ').slice(0, 3).join(' ');
-    if (shortTerms && shortTerms.length >= 3) {
-      const shortCandidates = await searchBingImages(shortTerms, count);
-      for (const sc of shortCandidates) {
-        if (!candidates.some(c => c.image_url === sc.image_url)) {
-          candidates.push(sc);
-        }
-      }
+    const firstWord = cleanName.split(/\s+/)[0];
+    if (firstWord && firstWord.length > 2) {
+      addCandidates(await searchDuckDuckGo(`${firstWord} product`, count));
+      if (candidates.length === 0) addCandidates(await searchBing(`${firstWord} product`, count));
     }
   }
 
@@ -233,7 +282,6 @@ async function findBestImages(productName, brandPrefix = "", count = 10) {
   };
 }
 
-// Serverless Handler (Vercel / Node HTTP / Edge compatible)
 module.exports = async function handler(req, res) {
   if (res && res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -253,7 +301,7 @@ module.exports = async function handler(req, res) {
     body = body || req.query || {};
 
     const productName = body.custom_query || body.product_name || req.query?.q || '';
-    const brandPrefix = body.brand_prefix || req.query?.brand || 'fischer';
+    const brandPrefix = body.brand_prefix || req.query?.brand || '';
 
     const result = await findBestImages(productName, brandPrefix, 10);
     

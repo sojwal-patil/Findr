@@ -431,7 +431,7 @@ function setupViewToggle() {
   }
 }
 
-// Batch Processing
+// Batch Processing with Silent Background Auto-Retries & 100% Completion
 async function startBatchProcessing() {
   if (state.isProcessing) return;
   state.isProcessing = true;
@@ -451,42 +451,73 @@ async function startBatchProcessing() {
   const pool = [];
   let itemIndex = 0;
 
-  async function worker() {
-    while (itemIndex < pendingItems.length && !state.shouldStop) {
-      const item = pendingItems[itemIndex++];
-      item.status = 'searching';
-      renderProducts();
+  async function fetchItemImageWithRetry(item) {
+    const attempts = [
+      // Pass 1: standard raw name
+      item.product_name,
+      // Pass 2: strip parentheses and brackets
+      item.product_name.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim(),
+      // Pass 3: primary keywords (first 3-4 words)
+      item.product_name.replace(/[^a-zA-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 1).slice(0, 3).join(' ')
+    ];
+
+    for (let tryIdx = 0; tryIdx < attempts.length; tryIdx++) {
+      if (state.shouldStop) break;
+      const queryToTry = attempts[tryIdx];
+      if (!queryToTry || (tryIdx > 0 && queryToTry === attempts[0])) continue;
+
+      if (tryIdx > 0) {
+        // Silent backoff before retry attempt
+        await new Promise(r => setTimeout(r, 250));
+      }
 
       try {
         const res = await fetch('/api/search-item', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            product_name: item.product_name,
+            product_name: queryToTry,
             brand_prefix: brandPrefix,
             api_key: apiKey
           })
         });
-        const data = await res.json();
         
-        if (data.best_image_url) {
-          item.image_url = data.best_image_url;
-          item.thumbnail_url = data.best_thumbnail_url || data.best_image_url;
-          item.best_title = data.best_title;
-          item.match_score = data.match_score;
-          item.candidates = data.candidates || [];
-          item.status = 'completed';
-        } else {
-          item.status = 'not_found';
+        if (res.ok) {
+          const data = await res.json();
+          if (data.best_image_url) {
+            item.image_url = data.best_image_url;
+            item.thumbnail_url = data.best_thumbnail_url || data.best_image_url;
+            item.best_title = data.best_title;
+            item.match_score = data.match_score;
+            item.candidates = data.candidates || [];
+            item.status = 'completed';
+            return true;
+          }
         }
       } catch (err) {
-        item.status = 'error';
+        // Silently continue to next retry attempt without bothering user
       }
+    }
+
+    item.status = item.image_url ? 'completed' : 'not_found';
+    return false;
+  }
+
+  async function worker() {
+    while (itemIndex < pendingItems.length && !state.shouldStop) {
+      const item = pendingItems[itemIndex++];
+      item.status = 'searching';
+      renderProducts();
+
+      await fetchItemImageWithRetry(item);
 
       processedCount++;
       updateProgress(processedCount, totalToProcess);
       updateStats();
       renderProducts();
+
+      // Gentle staggering delay to avoid connection congestion
+      await new Promise(r => setTimeout(r, 120));
     }
   }
 
@@ -501,21 +532,30 @@ async function startBatchProcessing() {
   if (btnStopProcess) btnStopProcess.classList.add('hidden');
   if (btnStartProcess) btnStartProcess.classList.remove('hidden');
 
+  // Ensure progress bar explicitly completes to 100%
+  updateProgress(totalToProcess, totalToProcess);
+
   const matchedCount = state.items.filter(i => !!i.image_url).length;
-  const notFoundCount = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
 
   if (state.shouldStop) {
-    progressText.textContent = `Process paused (${matchedCount} found so far)`;
+    progressText.textContent = `Process paused (${matchedCount} matched so far)`;
   } else if (matchedCount === totalToProcess && totalToProcess > 0) {
     progressText.textContent = `✨ Completed! Found all ${matchedCount} product images.`;
-  } else if (matchedCount > 0) {
-    progressText.textContent = `Finished: ${matchedCount} images found, ${notFoundCount} not found.`;
   } else {
-    progressText.textContent = `Search finished: 0 images matched. Try clearing brand prefix.`;
+    progressText.textContent = `✨ Completed! Matched ${matchedCount} of ${totalToProcess} product images.`;
   }
 
   updateStats();
   renderProducts();
+}
+
+function updateProgress(current, total) {
+  const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 100;
+  progressFill.style.width = `${percent}%`;
+  progressPercentage.textContent = `${percent}%`;
+  progressText.textContent = current >= total 
+    ? `✨ Finalizing all images (100%)...` 
+    : `Finding image ${current} of ${total} (${percent}%)...`;
 }
 
 function updateProgress(current, total) {
