@@ -203,8 +203,26 @@ function setupUploadEvents() {
     });
   }
 
+  if (btnTrySampleInline) {
+    btnTrySampleInline.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      loadSampleDataset();
+    });
+  }
+
+  if (btnLoadSample) {
+    btnLoadSample.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadSampleDataset();
+    });
+  }
+
   if (dropzone) {
-    dropzone.addEventListener('click', () => {
+    dropzone.addEventListener('click', (e) => {
+      if (e.target && e.target.closest('button')) {
+        return;
+      }
       csvFileInput.click();
     });
 
@@ -233,8 +251,6 @@ function setupUploadEvents() {
   }
 
   if (csvFileInput) csvFileInput.addEventListener('change', handleFileSelected);
-  if (btnLoadSample) btnLoadSample.addEventListener('click', loadSampleDataset);
-  if (btnTrySampleInline) btnTrySampleInline.addEventListener('click', loadSampleDataset);
 }
 
 function handleFileSelected(e) {
@@ -243,30 +259,97 @@ function handleFileSelected(e) {
   }
 }
 
+const BUILTIN_SAMPLE_CSV = `Product Name,Category,Price
+Apple iPhone 15 Pro 128GB Black Titanium,Smartphones,$999
+Sony WH-1000XM5 Wireless Noise Canceling Headphones Silver,Audio,$399
+Nike Air Jordan 1 Retro High OG Chicago,Footwear,$180
+Logitech MX Master 3S Wireless Performance Mouse,Accessories,$99
+Dyson V15 Detect Cordless Vacuum Cleaner Yellow/Nickel,Home Appliances,$749
+Nutella Hazelnut Spread with Cocoa 750g Jar,Groceries,$6.99
+Samsung 65-Inch Class OLED 4K S90C Series Smart TV,Television,$1599
+Nintendo Switch OLED Model with White Joy-Con,Gaming,$349
+Stanley Quencher H2.0 FlowState Stainless Steel Tumbler 40oz,Kitchen,$45
+Ray-Ban Classic Polarized Wayfarer Sunglasses Black,Eyewear,$210`;
+
 async function processCsvFile(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-
   try {
-    const res = await fetch('/api/upload-csv', {
-      method: 'POST',
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Upload failed');
-
-    loadItemsIntoState(data.items);
+    const text = await file.text();
+    const items = parseCsvContentLocally(text);
+    if (!items || items.length === 0) {
+      throw new Error('No valid product rows found in CSV.');
+    }
+    loadItemsIntoState(items);
   } catch (err) {
     alert('Error loading CSV: ' + err.message);
   }
 }
 
-async function loadSampleDataset() {
+function parseCsvContentLocally(text) {
+  if (!text || typeof text !== 'string') return [];
+  const cleanText = text.trim();
+  
+  if (cleanText.startsWith('<!DOCTYPE') || cleanText.startsWith('<html') || cleanText.startsWith('<head')) {
+    throw new Error('Received an HTML page instead of a valid CSV file.');
+  }
+
+  const lines = cleanText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return [];
+
+  function parseLine(line) {
+    const res = [];
+    let cur = '', inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') inQuote = !inQuote;
+      else if (c === ',' && !inQuote) {
+        res.push(cur.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+        cur = '';
+      } else cur += c;
+    }
+    res.push(cur.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+    return res;
+  }
+
+  const rows = lines.map(parseLine);
+  const headers = rows[0];
+  let nameColIdx = 0;
+  for (let idx = 0; idx < headers.length; idx++) {
+    const col = headers[idx].toLowerCase();
+    if (['product', 'name', 'title', 'item', 'description', 'sku'].some(k => col.includes(k))) {
+      nameColIdx = idx;
+      break;
+    }
+  }
+
+  const dataRows = rows.slice(1);
+  return dataRows.map((row, i) => {
+    const name = row[nameColIdx] ? row[nameColIdx].trim() : '';
+    if (!name || name.startsWith('<')) return null;
+    let existingImg = '';
+    for (const cell of row) {
+      if (cell.startsWith('http') && ['.jpg', '.png', '.jpeg', '.webp', '.avif', 'image'].some(ext => cell.toLowerCase().includes(ext))) {
+        existingImg = cell;
+        break;
+      }
+    }
+    return {
+      id: `item-${i + 1}`,
+      row_index: i + 1,
+      product_name: name,
+      image_url: existingImg,
+      thumbnail_url: existingImg,
+      match_score: existingImg ? 100 : 0,
+      status: existingImg ? 'completed' : 'ready',
+      candidates: [],
+      raw_row: row
+    };
+  }).filter(Boolean);
+}
+
+function loadSampleDataset() {
   try {
-    const res = await fetch('/api/sample-csv');
-    const blob = await res.blob();
-    const file = new File([blob], 'sample_products.csv', { type: 'text/csv' });
-    await processCsvFile(file);
+    const items = parseCsvContentLocally(BUILTIN_SAMPLE_CSV);
+    loadItemsIntoState(items);
   } catch (err) {
     alert('Failed to load sample: ' + err.message);
   }
@@ -415,9 +498,22 @@ async function startBatchProcessing() {
   await Promise.all(pool);
 
   state.isProcessing = false;
-  btnStopProcess.classList.add('hidden');
-  btnStartProcess.classList.remove('hidden');
-  progressText.textContent = state.shouldStop ? 'Process paused' : 'Completed!';
+  if (btnStopProcess) btnStopProcess.classList.add('hidden');
+  if (btnStartProcess) btnStartProcess.classList.remove('hidden');
+
+  const matchedCount = state.items.filter(i => !!i.image_url).length;
+  const notFoundCount = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
+
+  if (state.shouldStop) {
+    progressText.textContent = `Process paused (${matchedCount} found so far)`;
+  } else if (matchedCount === totalToProcess && totalToProcess > 0) {
+    progressText.textContent = `✨ Completed! Found all ${matchedCount} product images.`;
+  } else if (matchedCount > 0) {
+    progressText.textContent = `Finished: ${matchedCount} images found, ${notFoundCount} not found.`;
+  } else {
+    progressText.textContent = `Search finished: 0 images matched. Try clearing brand prefix.`;
+  }
+
   updateStats();
   renderProducts();
 }
@@ -431,16 +527,17 @@ function updateProgress(current, total) {
 
 function updateStats() {
   const total = state.items.length;
-  const matched = state.items.filter(i => i.image_url).length;
-  const pending = total - matched;
+  const matched = state.items.filter(i => !!i.image_url).length;
+  const unsearched = state.items.filter(i => !i.image_url && i.status !== 'not_found' && i.status !== 'error').length;
+  const notFound = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
 
   statTotal.textContent = total;
   statMatched.textContent = matched;
-  statPending.textContent = pending;
+  statPending.textContent = unsearched > 0 ? unsearched : (notFound > 0 ? `${notFound} not found` : 0);
 
   filterCountAll.textContent = total;
   filterCountMatched.textContent = matched;
-  filterCountPending.textContent = pending;
+  filterCountPending.textContent = total - matched;
 
   const matchedItems = state.items.filter(i => i.match_score > 0);
   if (matchedItems.length > 0) {

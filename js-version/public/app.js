@@ -203,8 +203,26 @@ function setupUploadEvents() {
     });
   }
 
+  if (btnTrySampleInline) {
+    btnTrySampleInline.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      loadSampleDataset();
+    });
+  }
+
+  if (btnLoadSample) {
+    btnLoadSample.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadSampleDataset();
+    });
+  }
+
   if (dropzone) {
-    dropzone.addEventListener('click', () => {
+    dropzone.addEventListener('click', (e) => {
+      if (e.target && e.target.closest('button')) {
+        return;
+      }
       csvFileInput.click();
     });
 
@@ -233,8 +251,6 @@ function setupUploadEvents() {
   }
 
   if (csvFileInput) csvFileInput.addEventListener('change', handleFileSelected);
-  if (btnLoadSample) btnLoadSample.addEventListener('click', loadSampleDataset);
-  if (btnTrySampleInline) btnTrySampleInline.addEventListener('click', loadSampleDataset);
 }
 
 function handleFileSelected(e) {
@@ -256,8 +272,28 @@ async function processCsvFile(file) {
   }
 }
 
+const BUILTIN_SAMPLE_CSV = `Product Name,Category,Price
+Apple iPhone 15 Pro 128GB Black Titanium,Smartphones,$999
+Sony WH-1000XM5 Wireless Noise Canceling Headphones Silver,Audio,$399
+Nike Air Jordan 1 Retro High OG Chicago,Footwear,$180
+Logitech MX Master 3S Wireless Performance Mouse,Accessories,$99
+Dyson V15 Detect Cordless Vacuum Cleaner Yellow/Nickel,Home Appliances,$749
+Nutella Hazelnut Spread with Cocoa 750g Jar,Groceries,$6.99
+Samsung 65-Inch Class OLED 4K S90C Series Smart TV,Television,$1599
+Nintendo Switch OLED Model with White Joy-Con,Gaming,$349
+Stanley Quencher H2.0 FlowState Stainless Steel Tumbler 40oz,Kitchen,$45
+Ray-Ban Classic Polarized Wayfarer Sunglasses Black,Eyewear,$210`;
+
 function parseCsvContentLocally(text) {
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (!text || typeof text !== 'string') return [];
+  const cleanText = text.trim();
+  
+  // Guard against HTML error pages or doctype
+  if (cleanText.startsWith('<!DOCTYPE') || cleanText.startsWith('<html') || cleanText.startsWith('<head')) {
+    throw new Error('Received an HTML page instead of a valid CSV file.');
+  }
+
+  const lines = cleanText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length === 0) return [];
 
   function parseLine(line) {
@@ -289,7 +325,7 @@ function parseCsvContentLocally(text) {
   const dataRows = rows.slice(1);
   return dataRows.map((row, i) => {
     const name = row[nameColIdx] ? row[nameColIdx].trim() : '';
-    if (!name) return null;
+    if (!name || name.startsWith('<')) return null;
     let existingImg = '';
     for (const cell of row) {
       if (cell.startsWith('http') && ['.jpg', '.png', '.jpeg', '.webp', '.avif', 'image'].some(ext => cell.toLowerCase().includes(ext))) {
@@ -311,11 +347,9 @@ function parseCsvContentLocally(text) {
   }).filter(Boolean);
 }
 
-async function loadSampleDataset() {
+function loadSampleDataset() {
   try {
-    const res = await fetch('/api/sample-csv');
-    const text = await res.text();
-    const items = parseCsvContentLocally(text);
+    const items = parseCsvContentLocally(BUILTIN_SAMPLE_CSV);
     loadItemsIntoState(items);
   } catch (err) {
     alert('Failed to load sample: ' + err.message);
@@ -465,9 +499,22 @@ async function startBatchProcessing() {
   await Promise.all(pool);
 
   state.isProcessing = false;
-  btnStopProcess.classList.add('hidden');
-  btnStartProcess.classList.remove('hidden');
-  progressText.textContent = state.shouldStop ? 'Process paused' : 'Completed!';
+  if (btnStopProcess) btnStopProcess.classList.add('hidden');
+  if (btnStartProcess) btnStartProcess.classList.remove('hidden');
+
+  const matchedCount = state.items.filter(i => !!i.image_url).length;
+  const notFoundCount = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
+
+  if (state.shouldStop) {
+    progressText.textContent = `Process paused (${matchedCount} found so far)`;
+  } else if (matchedCount === totalToProcess && totalToProcess > 0) {
+    progressText.textContent = `✨ Completed! Found all ${matchedCount} product images.`;
+  } else if (matchedCount > 0) {
+    progressText.textContent = `Finished: ${matchedCount} images found, ${notFoundCount} not found.`;
+  } else {
+    progressText.textContent = `Search finished: 0 images matched. Try clearing brand prefix.`;
+  }
+
   updateStats();
   renderProducts();
 }
@@ -481,16 +528,17 @@ function updateProgress(current, total) {
 
 function updateStats() {
   const total = state.items.length;
-  const matched = state.items.filter(i => i.image_url).length;
-  const pending = total - matched;
+  const matched = state.items.filter(i => !!i.image_url).length;
+  const unsearched = state.items.filter(i => !i.image_url && i.status !== 'not_found' && i.status !== 'error').length;
+  const notFound = state.items.filter(i => i.status === 'not_found' || i.status === 'error').length;
 
   statTotal.textContent = total;
   statMatched.textContent = matched;
-  statPending.textContent = pending;
+  statPending.textContent = unsearched > 0 ? unsearched : (notFound > 0 ? `${notFound} not found` : 0);
 
   filterCountAll.textContent = total;
   filterCountMatched.textContent = matched;
-  filterCountPending.textContent = pending;
+  filterCountPending.textContent = total - matched;
 
   const matchedItems = state.items.filter(i => i.match_score > 0);
   if (matchedItems.length > 0) {
