@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/search-item", "destination": "/api/search-item.js" },
+    { "source": "/api/proxy-image", "destination": "/api/proxy-image.js" },
+    { "source": "/api/sample-csv", "destination": "/api/sample-csv.js" },
+    { "source": "/api/export-csv", "destination": "/api/export-csv.js" },
+    { "source": "/(.*)", "destination": "/public/$1" }
+  ]
+}
