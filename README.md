@@ -1,38 +1,19 @@
-# 🖼️ Product Image Finder & CSV Enricher
+# 🔍 Findr — Product Image Finder & CSV Enricher
 
-An interactive, fast app that finds matching product images from the web and enriches CSV files with direct image URLs.
-
----
-
-## ✨ Features
-
-- **Automated Image Matching**: Intelligent relevance ranking algorithm matching product brand, model, and keywords.
-- **CSV Enrichment**: Reads product names from the 1st column and outputs direct Image URLs in the 2nd column.
-- **Interactive UI**:
-  - **Drag & Drop** or file browser for CSV upload.
-  - **Paste Products**: Quick textarea input for ad-hoc lists.
-  - **1-Click Demo Sample**: Test immediately with 10 popular products.
-  - **Real-time Live Processing**: Streaming progress bar with concurrent search.
-  - **Dual View**: Table View & Visual Card Grid View.
-  - **Thumbnail Zoom & Lightbox**: Instant visual inspection.
-  - **Alternatives Switcher Modal**: Click any item to preview 6 top Google/Bing candidate images and swap with 1 click.
-  - **Custom Search Refinement**: Refine search keywords directly within the modal.
-  - **Direct Image Proxy**: Prevents broken hotlinking/CORS image loading in browsers.
-  - **Export CSV**: 1-Click download of the enriched CSV with Column 1 = `Product Name` and Column 2 = `Image URL`.
-  - **Copy URLs**: 1-Click copy of all image URLs to clipboard.
+An interactive, lightning-fast app that finds matching high-resolution product images from the web and automatically enriches CSV spreadsheets with direct image URLs.
 
 ---
 
-## 🚀 How to Run
+## ⚡ Quick Start Options
 
-1. Run the app:
-   ```bash
-   python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
-   ```
-   *Or simply double-click [run.bat](file:///e:/ImageFinder/run.bat).*
+### Option 1: Standalone Desktop App (No Python Required)
+Simply double-click **`Findr.exe`**. It runs as a native, single-file Windows desktop application with full offline bundling and native Save As dialogs.
 
-2. Open your browser at:
-   **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
+### Option 2: Web Server Mode
+```bash
+python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+```
+*Or double-click [run.bat](file:///e:/ImageFinder/run.bat) and open [http://127.0.0.1:8000](http://127.0.0.1:8000).*
 
 ---
 

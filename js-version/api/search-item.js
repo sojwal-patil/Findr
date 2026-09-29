@@ -143,7 +143,7 @@ async function searchDuckDuckGoImages(query, count = 10) {
   }
 }
 
-async function findBestImages(productName, brandPrefix = "fischer", count = 10) {
+async function findBestImages(productName, brandPrefix = "", count = 10) {
   const cleanName = (productName || '').trim();
   if (!cleanName) {
     return {
@@ -157,30 +157,50 @@ async function findBestImages(productName, brandPrefix = "fischer", count = 10) 
     };
   }
 
-  let fullQuery = cleanName;
+  let candidates = [];
+
+  // 1. If brandPrefix is provided, search with brandPrefix
   if (brandPrefix && !cleanName.toLowerCase().includes(brandPrefix.toLowerCase())) {
-    fullQuery = `${brandPrefix} ${cleanName}`;
-  }
-
-  // 1. Search Bing
-  let candidates = await searchBingImages(fullQuery, count);
-
-  // 2. If Bing has low results, fallback to DuckDuckGo
-  if (candidates.length < 3) {
-    const ddg = await searchDuckDuckGoImages(fullQuery, count);
-    for (const d of ddg) {
-      if (!candidates.some(c => c.image_url === d.image_url)) {
-        candidates.push(d);
+    const brandedQuery = `${brandPrefix} ${cleanName}`;
+    candidates = await searchBingImages(brandedQuery, count);
+    if (candidates.length < 3) {
+      const ddg = await searchDuckDuckGoImages(brandedQuery, count);
+      for (const d of ddg) {
+        if (!candidates.some(c => c.image_url === d.image_url)) {
+          candidates.push(d);
+        }
       }
     }
   }
 
-  // 3. If still low and brandPrefix was present, search without brand prefix
-  if (candidates.length < 2 && brandPrefix) {
-    const extra = await searchBingImages(cleanName, count);
-    for (const e of extra) {
-      if (!candidates.some(c => c.image_url === e.image_url)) {
-        candidates.push(e);
+  // 2. If no brand prefix OR candidates are low (< 3) OR top score is low, also search exact cleanName
+  if (candidates.length < 3 || !brandPrefix || (candidates[0] && candidates[0].score < 70)) {
+    const rawCandidates = await searchBingImages(cleanName, count);
+    for (const r of rawCandidates) {
+      if (!candidates.some(c => c.image_url === r.image_url)) {
+        candidates.push(r);
+      }
+    }
+    if (candidates.length < 3) {
+      const ddgRaw = await searchDuckDuckGoImages(cleanName, count);
+      for (const d of ddgRaw) {
+        if (!candidates.some(c => c.image_url === d.image_url)) {
+          candidates.push(d);
+        }
+      }
+    }
+  }
+
+  // 3. If still empty, simplify long query by taking core significant words
+  if (candidates.length === 0) {
+    const words = cleanName.split(/\s+/).filter(w => !['with', 'and', 'for', 'the', 'model', 'series', 'class', 'in'].includes(w.toLowerCase()));
+    if (words.length > 3) {
+      const relaxedQuery = words.slice(0, 4).join(' ');
+      const relaxedCandidates = await searchBingImages(relaxedQuery, count);
+      for (const rc of relaxedCandidates) {
+        if (!candidates.some(c => c.image_url === rc.image_url)) {
+          candidates.push(rc);
+        }
       }
     }
   }

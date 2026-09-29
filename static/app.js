@@ -35,6 +35,7 @@ const filterCountPending = document.getElementById('filter-count-pending');
 
 const btnStartProcess = document.getElementById('btn-start-process');
 const btnStopProcess = document.getElementById('btn-stop-process');
+const btnResetWorkspace = document.getElementById('btn-reset-workspace');
 const btnExportCsv = document.getElementById('btn-export-csv');
 const btnCopyUrls = document.getElementById('btn-copy-urls');
 
@@ -288,6 +289,7 @@ function setupToolbarEvents() {
       btnStartProcess.classList.remove('hidden');
     });
   }
+  if (btnResetWorkspace) btnResetWorkspace.addEventListener('click', resetWorkspace);
 
   document.querySelectorAll('.filter-pill').forEach(pill => {
     pill.addEventListener('click', () => {
@@ -300,6 +302,26 @@ function setupToolbarEvents() {
 
   if (btnExportCsv) btnExportCsv.addEventListener('click', exportCsv);
   if (btnCopyUrls) btnCopyUrls.addEventListener('click', copyAllUrls);
+}
+
+function resetWorkspace() {
+  state.shouldStop = true;
+  state.isProcessing = false;
+  state.items = [];
+  state.selectedItemId = null;
+  state.activeFilter = 'all';
+
+  if (csvFileInput) csvFileInput.value = '';
+  if (progressContainer) progressContainer.classList.add('hidden');
+  if (progressFill) progressFill.style.width = '0%';
+  if (progressPercentage) progressPercentage.textContent = '0%';
+  if (progressText) progressText.textContent = '';
+
+  if (btnStopProcess) btnStopProcess.classList.add('hidden');
+  if (btnStartProcess) btnStartProcess.classList.remove('hidden');
+
+  workspaceSection.classList.add('hidden');
+  uploadSection.classList.remove('hidden');
 }
 
 function setupViewToggle() {
@@ -340,7 +362,7 @@ async function startBatchProcessing() {
   const totalToProcess = pendingItems.length;
   let processedCount = 0;
 
-  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : '';
   const apiKey = localStorage.getItem('google_serper_api_key') || '';
 
   const pool = [];
@@ -571,7 +593,7 @@ async function reSearchSingleItem(itemId) {
   item.status = 'searching';
   renderProducts();
 
-  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : '';
   const apiKey = localStorage.getItem('google_serper_api_key') || '';
 
   try {
@@ -623,7 +645,7 @@ async function openAlternativesModal(itemId) {
 async function searchAlternativesForItem(itemId, query) {
   altImagesGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 24px;"><div class="spinner" style="margin: 0 auto 8px;"></div>Searching Images...</div>';
   
-  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : 'fischer';
+  const brandPrefix = brandPrefixInput ? brandPrefixInput.value.trim() : '';
   const apiKey = localStorage.getItem('google_serper_api_key') || '';
 
   try {
@@ -722,7 +744,25 @@ async function exportCsv() {
       body: JSON.stringify(payload)
     });
 
-    const blob = await res.blob();
+    const csvText = await res.text();
+
+    // Check if running inside Desktop Native PyWebView app
+    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_csv === 'function') {
+      const result = await window.pywebview.api.save_csv(csvText, 'products_with_matching_images.csv');
+      if (result && result.success) {
+        alert('File saved successfully to:\n' + result.path);
+        return;
+      } else if (result && result.cancelled) {
+        // User cancelled dialog
+        return;
+      } else if (result && result.error) {
+        alert('Could not save file: ' + result.error);
+        return;
+      }
+    }
+
+    // Standard browser fallback
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

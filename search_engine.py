@@ -3,7 +3,7 @@ import re
 import json
 import difflib
 from typing import List, Dict, Any, Optional
-import primp
+import primp  # type: ignore
 
 class ProductImageMatcher:
     def __init__(self):

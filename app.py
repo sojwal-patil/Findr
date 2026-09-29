@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from search_engine import matcher
 
-app = FastAPI(title="Product Image Finder & CSV Enricher", version="2.0")
+app = FastAPI(title="Findr - Product Image Finder & CSV Enricher", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,7 +40,7 @@ class ExportRequest(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "message": "Product Image Finder is running smoothly"}
+    return {"status": "ok", "message": "Findr is running smoothly"}
 
 @app.get("/api/proxy-image")
 def proxy_image(url: str = Query(..., description="Target image URL")):
@@ -205,9 +205,17 @@ def export_csv(payload: ExportRequest):
         headers={"Content-Disposition": "attachment; filename=products_with_images.csv"}
     )
 
+import os
+import sys
+
+# Dynamic static directory resolution for both script and PyInstaller .exe
+base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+static_dir = os.path.join(base_dir, "static")
+
 # Mount static files
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+
