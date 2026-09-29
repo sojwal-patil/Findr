@@ -1,4 +1,4 @@
-// Exact Match Scoring & Search Engine in Serverless JavaScript
+// Multi-Engine (Bing + DuckDuckGo) High-Precision Product Image Matcher in JavaScript
 
 function getBigrams(str) {
   const bigrams = [];
@@ -46,7 +46,7 @@ function calculateMatchScore(productName, title, imageUrl) {
   const seqRatio = sequenceMatcherRatio(pClean, tClean.slice(0, pClean.length * 2)) * 20.0;
 
   let bonus = 0.0;
-  const brands = ['fischer', 'amazon', 'imimg', 'indiamart', 'ebay', 'hardware', 'media.fischer'];
+  const brands = ['fischer', 'amazon', 'imimg', 'indiamart', 'ebay', 'hardware', 'media.fischer', 'target', 'walmart'];
   if (brands.some(b => tClean.includes(b) || uClean.includes(b))) {
     bonus += 10.0;
   }
@@ -55,21 +55,56 @@ function calculateMatchScore(productName, title, imageUrl) {
   return Math.max(50.0, Math.min(99.9, Math.round(finalScore * 10) / 10));
 }
 
-async function searchExactImages(query, brandPrefix = "fischer", count = 10) {
-  const qClean = (query || '').trim();
-  let fullQuery = qClean;
-  if (brandPrefix && !qClean.toLowerCase().includes(brandPrefix.toLowerCase())) {
-    fullQuery = `${brandPrefix} ${qClean}`;
-  }
-
+// Engine 1: Bing Image Index Scraper
+async function searchBingImages(query, count = 10) {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Accept': '*/*'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   };
 
   try {
-    const url = `https://duckduckgo.com/?q=${encodeURIComponent(fullQuery)}`;
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1`;
+    const res = await fetch(url, { headers });
+    const html = await res.text();
+
+    const items = [];
+    const regex = /m=&quot;(\{.*?\})&quot;/g;
+    let match;
+
+    while ((match = regex.exec(html)) !== null) {
+      try {
+        const decoded = match[1].replace(/&quot;/g, '"');
+        const obj = JSON.parse(decoded);
+        if (obj.murl && obj.murl.startsWith('http')) {
+          const title = obj.t || query;
+          const score = calculateMatchScore(query, title, obj.murl);
+          items.push({
+            image_url: obj.murl,
+            thumbnail_url: obj.turl || obj.murl,
+            title: title,
+            source: 'Bing / Web Index',
+            score: score
+          });
+          if (items.length >= count) break;
+        }
+      } catch (_) {}
+    }
+    return items;
+  } catch (err) {
+    return [];
+  }
+}
+
+// Engine 2: DuckDuckGo Image Index Scraper
+async function searchDuckDuckGoImages(query, count = 10) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9'
+  };
+
+  try {
+    const url = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
     const r1 = await fetch(url, { headers });
     const text1 = await r1.text();
 
@@ -77,23 +112,26 @@ async function searchExactImages(query, brandPrefix = "fischer", count = 10) {
     if (!vqdMatch) return [];
 
     const v = vqdMatch[1];
-    const apiUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(fullQuery)}&vqd=${v}&f=,,,`;
-    const r2 = await fetch(apiUrl, { headers });
+    const apiUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${v}&f=,,,`;
+    const r2 = await fetch(apiUrl, {
+      headers: {
+        ...headers,
+        'Referer': `https://duckduckgo.com/?q=${encodeURIComponent(query)}`
+      }
+    });
     const data = await r2.json();
 
     const items = [];
     for (const it of (data.results || [])) {
       const img = it.image;
-      const thumb = it.thumbnail || img;
-      const title = it.title || query;
-
       if (img && img.startsWith('http')) {
+        const title = it.title || query;
         const score = calculateMatchScore(query, title, img);
         items.push({
           image_url: img,
-          thumbnail_url: thumb,
+          thumbnail_url: it.thumbnail || img,
           title: title,
-          source: 'Web / Google Index',
+          source: 'DuckDuckGo Index',
           score: score
         });
         if (items.length >= count) break;
@@ -101,7 +139,6 @@ async function searchExactImages(query, brandPrefix = "fischer", count = 10) {
     }
     return items;
   } catch (err) {
-    console.error(`Error fetching images for '${fullQuery}':`, err);
     return [];
   }
 }
@@ -120,10 +157,27 @@ async function findBestImages(productName, brandPrefix = "fischer", count = 10) 
     };
   }
 
-  let candidates = await searchExactImages(cleanName, brandPrefix, count);
+  let fullQuery = cleanName;
+  if (brandPrefix && !cleanName.toLowerCase().includes(brandPrefix.toLowerCase())) {
+    fullQuery = `${brandPrefix} ${cleanName}`;
+  }
 
-  if (candidates.length < 3 && brandPrefix) {
-    const extra = await searchExactImages(cleanName, "", count);
+  // 1. Search Bing
+  let candidates = await searchBingImages(fullQuery, count);
+
+  // 2. If Bing has low results, fallback to DuckDuckGo
+  if (candidates.length < 3) {
+    const ddg = await searchDuckDuckGoImages(fullQuery, count);
+    for (const d of ddg) {
+      if (!candidates.some(c => c.image_url === d.image_url)) {
+        candidates.push(d);
+      }
+    }
+  }
+
+  // 3. If still low and brandPrefix was present, search without brand prefix
+  if (candidates.length < 2 && brandPrefix) {
+    const extra = await searchBingImages(cleanName, count);
     for (const e of extra) {
       if (!candidates.some(c => c.image_url === e.image_url)) {
         candidates.push(e);
@@ -147,7 +201,6 @@ async function findBestImages(productName, brandPrefix = "fischer", count = 10) 
 
 // Serverless Handler (Vercel / Node HTTP / Edge compatible)
 module.exports = async function handler(req, res) {
-  // Enable CORS
   if (res && res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
